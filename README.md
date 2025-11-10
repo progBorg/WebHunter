@@ -1,5 +1,5 @@
-# Huizenjacht
-Scrape housing websites and push new results to the user.
+# Webhunter
+Scrape websites and push new results to the user.
 
 ## Features
 
@@ -21,8 +21,8 @@ If you use a different Python version, this software may not work as expected.
 ## Installation
 
 ### Installing Huizenjacht
-- Clone this repository to your device, e.g., `git clone https://github.com/progBorg/huizenjacht.git ~/huizenjacht`
-- Navigate to the repository root directory, e.g., `cd ~/huizenjacht`
+- Clone this repository to your device, e.g., `git clone https://github.com/progBorg/webhunter.git ~/webhunter`
+- Navigate to the repository root directory, e.g., `cd ~/webhunter`
 - Copy the file `huizenjacht.yaml.example` to `huizenjacht.yaml` and change whatever configuration you like
 - Copy the file `install/huizenjacht.service` to `/etc/systemd/system/`
 - Install links for system-wide use:
