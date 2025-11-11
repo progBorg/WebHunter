@@ -18,4 +18,11 @@ class Comm(ABC):
     @abstractmethod
     def is_ready(self) -> bool:
         pass
-    
+
+    """
+    Test and reload from provided configuration
+    :returns True if conf is accepted, False otherwise
+    """
+    @abstractmethod
+    def reload(self, config: dict) -> bool:
+        pass

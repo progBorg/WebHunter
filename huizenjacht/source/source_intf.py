@@ -25,6 +25,11 @@ class Source(ABC):
     def _required_conf_entries(self) -> set:
         pass
 
+    @property
+    @abstractmethod
+    def _conf_entry_name(self) -> str:
+        pass
+
     @abstractmethod
     def __init__(self):
         pass
@@ -46,17 +51,19 @@ class Source(ABC):
     """
     Get a value from the config
     """
-    def conf_value(self, key: str | tuple, default = None):
+    def conf_value(self, key: str | tuple, default = None, conf: dict = None):
+        if conf is None:
+            conf = self.conf
         if self.conf is None:
             raise ValueError("Attempted to read config value, but config was not loaded")
 
         value = None
         try:
             if isinstance(key, str):
-                value = self.conf.get(key, default)
+                value = conf.get(key, default)
             elif isinstance(key, tuple):
                 for k in key:
-                    value = self.conf.get(k, default)
+                    value = conf.get(k, default)
         except KeyError as ex:
             self.logger.error("Key %s does not exist in config, no default value given", key)
             raise ex
@@ -64,13 +71,35 @@ class Source(ABC):
         return value
 
     """
+    Test and reload from provided configuration
+    :returns True if conf is accepted, False otherwise
+    """
+    def reload(self, config: dict) -> bool:
+        if 'sources' in config:
+            if self._conf_entry_name in config['sources']:
+                config = config['sources'][self._conf_entry_name]
+            else:
+                self.logger.error(f"Could not find {self._conf_entry_name} entry in config")
+                return False
+        try:
+            self._sanity_check_conf(config)
+        except KeyError:
+            return False
+
+        #TODO Implement actual reload
+        return True
+
+    """
     Basic configuration sanity check to see if all required keys are present
     """
-    def _sanity_check_conf(self):
+    def _sanity_check_conf(self, conf: dict = None):
+        if conf is None:
+            conf = self.conf
+
         req_entries = dict.fromkeys(self._required_conf_entries)
         for name in req_entries.keys():
             try:
-                value = self.conf[name]
+                value = conf[name]
             except KeyError as e:
                 logging.error(f"Required entry \"{name}\" not found in configuration")
                 raise e

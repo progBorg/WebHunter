@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS "Funda" (
     _req_url_headers: dict
     _ua: UserAgent
     _conn: sqlite3.Connection
+    _conf_entry_name = "funda"
 
 
     def __init__(self, db: sqlite3.Connection):
@@ -78,11 +79,15 @@ CREATE TABLE IF NOT EXISTS "Funda" (
         headers["User-Agent"] = self._ua.random
 
         # Do request
-        res = requests.get(
-            url=self._req_url,
-            params=self._req_url_params,
-            headers=headers,
-        )
+        try:
+            res = requests.get(
+                url=self._req_url,
+                params=self._req_url_params,
+                headers=headers,
+            )
+        except ConnectionError as exc:
+            self.logger.exception("Could not connect to Funda", exc_info=exc)
+            return None
 
         if res.status_code != 200:
             self.logger.warning("Could not reach Funda page successfully, http status code %i", res.status_code)
@@ -111,10 +116,12 @@ CREATE TABLE IF NOT EXISTS "Funda" (
 
         return True
 
-    def _sanity_check_conf(self):
+    def _sanity_check_conf(self, conf: dict = None):
         super()
+        if conf is None:
+            conf = self.conf
 
-        buy_or_rent = self.conf_value("buy_or_rent")
+        buy_or_rent = self.conf_value("buy_or_rent", conf=conf)
         if not buy_or_rent in ("buy", "koop", "rent", "huur"):
             raise ValueError(f'Config entry buy_or_rent must be one of [buy, rent, koop, huur], is now "{buy_or_rent}"')
 

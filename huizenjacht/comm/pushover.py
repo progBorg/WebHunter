@@ -54,16 +54,34 @@ class Pushover(Comm):
     def rcpt(self) -> str:
         return self.conf['user_key']
 
+    def reload(self, config: dict) -> bool:
+        if 'comm' in config:
+            if 'pushover' in config['comm']:
+                config = config['comm']['pushover']
+            else:
+                self.logger.error("Could not find Pushover entry in config")
+                return False
+        try:
+            self._sanity_check_conf(config)
+        except KeyError:
+            return False
+
+        #TODO Implement actual reload
+        return True
+
     """Perform a simple sanity check on the configuration keys"""
-    def _sanity_check_conf(self):
+    def _sanity_check_conf(self, conf: dict = None):
         entries = {
             "api_key": None,
             "user_key": None,
         }
 
+        if conf is None:
+            conf = self.conf
+
         for name in entries.keys():
             try:
-                value = self.conf[name]
+                value = conf[name]
             except KeyError as e:
                 logging.error(f"{name} not found in Pushover configuration")
                 raise e

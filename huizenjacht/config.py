@@ -27,17 +27,7 @@ class Config(metaclass=SingletonMeta):
         if config_file is None:
             config_file = self.config_file
 
-        # Set up the configuration file parser
-        with open(config_file, 'r') as stream:
-            try:
-                self._config = yaml.safe_load(stream)
-            except yaml.YAMLError as e:
-                self.logger.error(
-                    "An error occurred when attempting to parse the configuration file %s",
-                    self.config_file,
-                    exc_info=e
-                )
-                raise e
+        self._config = load_config_file(config_file)
 
         self._loaded_config_file = config_file
 
@@ -74,3 +64,20 @@ class Config(metaclass=SingletonMeta):
     @property
     def loaded_config_file(self) -> str:
         return str(Path(self._loaded_config_file).resolve())
+
+def load_config_file(config_file: str) -> dict:
+    logger = logging.getLogger(__name__)
+
+    # Set up the configuration file parser
+    with open(config_file, 'r') as stream:
+        try:
+            config = yaml.safe_load(stream)
+        except yaml.YAMLError as exc:
+            logger.exception(
+                "An error occurred when attempting to parse the configuration file %s",
+                config_file,
+                exc_info=exc
+            )
+            raise exc
+
+    return config

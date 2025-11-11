@@ -11,32 +11,28 @@ import sqlite3
 import sys
 import traceback
 import signal
+import inflection
+import time
+import random
+import sched
+
 try:  # Will fail if not on Linux
     import systemd.daemon
 except ImportError:
     pass  # Fail silently and log later
 
-import inflection
-import time
-import random
-
 from huizenjacht.source import Source, Funda
 from huizenjacht.comm import Comm
-from huizenjacht.config import Config
+from huizenjacht.config import Config, load_config_file
 
 # Some constants
 PROGRAM_VERSION: str = "0.1"
+
 
 def main():
     # Set up logging, include systemd Journal support
     logging.basicConfig()
     logger = logging.getLogger()
-
-    # Implement reloading via SIGHUP if supported by system
-    try:
-        signal.signal(signal.SIGHUP, reload)
-    except AttributeError:
-        logger.info("SIGHUP not supported by system, support for configuration reloading disabled")
 
     # Parse command-line arguments
     args = parse_arguments()
@@ -62,8 +58,15 @@ def main():
     # Load database
     db = sqlite3.connect(conf["server"]["db"])
 
+    # Create main house hunting object
     hj = Huizenjacht(db)
-    systemd_notify('READY=1')
+
+    # Implement reloading via SIGHUP if supported by system
+    try:
+        signal.signal(signal.SIGHUP, hj.reload)
+    except AttributeError:
+        logger.info("SIGHUP not supported by system, support for configuration reloading disabled")
+
 
     # Handle seeding of database
     if args.reseed:
@@ -72,12 +75,21 @@ def main():
 
     min_waiting_time = conf["server"].get("poll_time_min", 240)  # seconds
     max_waiting_time = conf["server"].get("poll_time_max", 360)  # seconds
+    if min_waiting_time > max_waiting_time:
+        max_waiting_time = min_waiting_time + 5
     logger.info(f"Running Huizenjacht at an interval of {min_waiting_time}s to {max_waiting_time}s")
 
+    s = sched.scheduler()
+
+    # Let systemd know we've successfully initialized
+    systemd_notify('READY=1')
+
     try:
-        while True:
-            hj.run()
-            time.sleep(random.randint(min_waiting_time, max_waiting_time))
+        run_periodic(
+            scheduler=s,
+            interval=(min_waiting_time, max_waiting_time),
+            action=hj.run,
+        )
     finally:
         systemd_notify('STOPPING=1')
 
@@ -87,20 +99,13 @@ def main():
             msg = f"""{conf["server"]["message_strings"]["server_shutdown_msg_text"]}
 
 {exc_type.__name__}:
-{traceback.format_exc(limit=2)}"""
+{traceback.format_exc(limit=3)}"""
             title = conf["server"]["message_strings"]["server_info_msg_title"]
             for c in hj.comms:
                 hj.send_msg(c, msg=msg, title=title)
 
     return 0
 
-def reload(sig: int, frame):
-    systemd_notify(f'RELOADING=1\nMONOTONIC_USEC={time.monotonic_ns() // 1000}')
-
-    logger = logging.getLogger()
-    logger.warning("Reload requested, but reloading is not supported yet")
-
-    systemd_notify('READY=1')
 
 def systemd_notify(message: str):
     try:
@@ -108,6 +113,20 @@ def systemd_notify(message: str):
     except NameError:
         # Silently ignore if systemd is not on this system
         pass
+
+
+def run_periodic(scheduler: sched.scheduler, interval, action, actionargs=(), actionkwargs={}):
+    if isinstance(interval, tuple) and len(interval) >= 2:
+        rerun_interval = random.randint(interval[0], interval[1])
+    else:
+        rerun_interval = interval
+
+    # Reschedule same event to happen again after rerun_interval time has passed
+    scheduler.enter(rerun_interval, 1, run_periodic, (scheduler, interval, action, actionargs, actionkwargs))
+
+    # Run action
+    action(*actionargs, **actionkwargs)
+
 
 class Huizenjacht:
     # Class constants
@@ -141,12 +160,12 @@ class Huizenjacht:
         # Load active sources and active comms
         self.sources = self.load_sources(
             [key for key in self.conf[self.SOURCES_KEY].keys()
-                if self.conf[self.SOURCES_KEY][key]["active"]],
+             if self.conf[self.SOURCES_KEY][key]["active"]],
             db
         )
         self.comms = self.load_comms(
             [key for key in self.conf[self.COMMS_KEY].keys()
-                if self.conf[self.COMMS_KEY][key]["active"]]
+             if self.conf[self.COMMS_KEY][key]["active"]]
         )
 
         # Read config values
@@ -157,8 +176,9 @@ class Huizenjacht:
         self.DEFAULT_MSG_TITLE_PLURAL = self.conf["server"]["message_strings"]["default_title_plural"]
 
         # Send a startup message
-        for comm in self.comms:
-            self.send_msg(comm, msg=self.STARTUP_COMM_MSG_TEXT, title=self.SERVER_COMM_MSG_TITLE)
+        if self.STARTUP_COMM_MSG_TEXT not in (None, ''):
+            for comm in self.comms:
+                self.send_msg(comm, msg=self.STARTUP_COMM_MSG_TEXT, title=self.SERVER_COMM_MSG_TITLE)
 
     def run(self):
         """Go once through all sources and push new houses to all comms"""
@@ -181,7 +201,7 @@ class Huizenjacht:
             return
 
         # Parse some information
-        new_houses_count = sum([len(h) for h in new_houses])
+        new_houses_count = sum([len(new_houses[h]) for h in new_houses])
         new_houses_sources = new_houses.keys()
         new_houses_sources = ', '.join(new_houses_sources)
         self.logger.info(f"Found {new_houses_count} new houses on {new_houses_sources}")
@@ -195,7 +215,7 @@ class Huizenjacht:
             msg = f"Er zijn {new_houses_count} nieuwe huizen gevonden op {new_houses_sources}"
 
         try:  # Funda has high priority
-            url = new_houses[type(Funda).__name__][0]
+            url = new_houses['Funda'][0]
         except KeyError:  # If no funda house, just get the first one available
             url = next(iter(new_houses.values()))[0]
 
@@ -204,10 +224,12 @@ class Huizenjacht:
             self.send_msg(c, msg, title, url)
 
     """Load all source objects into a list and return that list"""
+
     def load_sources(self, sources: list, db: sqlite3.Connection) -> list[Source]:
         return self._load_classes_from_module(db, module_list=sources, module_location="huizenjacht.source")
 
     """Load all comm objects into a list and return that list"""
+
     def load_comms(self, comms: list) -> list[Comm]:
         return self._load_classes_from_module(module_list=comms, module_location="huizenjacht.comm")
 
@@ -229,6 +251,7 @@ class Huizenjacht:
         return objects
 
     """From a list of strings, generate a list of filenames and object names for Sources and Comms """
+
     def _str_to_file_and_object_names(self, stringlist: list[str]) -> (list[str], list[str]):
         # Make a copy of input with all inputs cast to a string and anything not alphanumeric or underscore removed
         _stringlist = [''.join(c for c in str(s) if c.isalnum() or c == '_') for s in stringlist]
@@ -247,13 +270,42 @@ class Huizenjacht:
             for h in houses:
                 source.is_new(h)
 
+    def reload(self, sig: int, frame):
+        systemd_notify(f'RELOADING=1\nMONOTONIC_USEC={time.monotonic_ns() // 1000}')
+
+        try:
+            new_conf = load_config_file(str(Config().loaded_config_file))
+        except FileNotFoundError as exc:
+            if Config().loaded_config_file == Config.LOAD_TXT:
+                self.logger.error("Attempted to reload while using textual input as config, this is not possible")
+            else:
+                raise exc
+        else:  # Succesfully loaded
+            new_conf_accepted = True
+            failing_modules = []
+            for s in self.sources:
+                if not s.reload(new_conf):
+                    failing_modules.append(type(s).__name__)
+                    new_conf_accepted = False
+            for c in self.comms:
+                if not c.reload(new_conf):
+                    failing_modules.append(type(c).__name__)
+                    new_conf_accepted = False
+
+            if not new_conf_accepted:
+                self.logger.error(f"Attempted to reload configuration, but not accepted by {failing_modules}")
+                self.logger.error("Retaining old config")
+
+        systemd_notify('READY=1')
+
     """Send a message to specified comm object"""
     def send_msg(self, comm: Comm, msg: str, title: str = None, url: str = None) -> int:
+        one_line_msg = '|\t'.join([line.strip() for line in msg.splitlines()])
         if not self.conf["server"]["simulate"]:
-            self.logger.debug(f"msg to {type(comm).__name__}: t'{title}' m'{msg}' u'{url}'")
+            self.logger.debug(f"msg to {type(comm).__name__}: t'{title}' m'{one_line_msg}' u'{url}'")
             return comm.send(msg=msg, title=title, url=url)
         else:
-            self.logger.info(f"sim-msg to {type(comm).__name__}: t'{title}' m'{msg}' u'{url}'")
+            self.logger.info(f"sim-msg to {type(comm).__name__}: t'{title}' m'{one_line_msg}' u'{url}'")
             return 0
 
 
@@ -266,7 +318,9 @@ def parse_arguments():
     parser.add_argument("--configfile", "-c", type=str, default="/etc/huizenjacht.yaml", help='Configuration file')
     parser.add_argument("-v", "--verbose", action="store_true", help="Log debug information")
     parser.add_argument("--version", action="version", version=f"%(prog)s v{PROGRAM_VERSION}")
-    parser.add_argument("--reseed", action="store_true", help="Pull all currently available houses into database without notifying user")
+    parser.add_argument("--reseed", action="store_true",
+                        help="Pull all currently available houses into database without notifying user")
+    parser.add_argument("--oneshot", "-1", action="store_true", help="Run all sources and comms once, then exit")
     return parser.parse_args()
 
 

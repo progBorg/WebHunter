@@ -32,9 +32,7 @@ If you use a different Python version, this software may not work as expected.
 
 ## Running
 Once installed, the service may be started immediately using `sudo service huizenjacht start`.
-
-For an improved debugging experience, the script `launch_server_instance.sh` is included to run GPRsim in the current
-console. You may stop the service using `sudo service huizenjacht stop`.
+You may stop the service using `sudo service huizenjacht stop`.
 
 (c) Tom Veldman 2024\
 Software licensed under the MIT license
