@@ -2,21 +2,23 @@
 server:
   debug: false
   simulate: false
-  db: "huizenjacht.db"  # file location of database
+  db: "webhunter.db"  # file location of database
   poll_time_min: 1  # seconds
   poll_time_max: 3  # seconds
   message_strings:
-    default_title: "Nieuw huis gevonden"
-    default_title_plural: "Nieuwe huizen gevonden"
+    default_title: "Nieuw {item} gevonden"
+    default_title_plural: "Nieuwe {item_plural} gevonden"
     server_info_msg_title: "Systeemmelding"
-    server_startup_msg_text: "De huizenjager is opgestart"
-    server_shutdown_msg_text: "De huizenjager is onverwacht gestopt"
+    server_startup_msg_text: "De WebHunter is opgestart"
+    server_shutdown_msg_text: "De WebHunter is onverwacht gestopt"
     and: "en"
 
 sources:
 #  Source names should be exactly the same as the filename in which the source object is stored
   funda:
     active: true
+    item_title: "huis"
+    item_title_plural: "huizen"
     areas: [
       "enschede",
     ]

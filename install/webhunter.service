@@ -1,13 +1,13 @@
 [Unit]
-Description=House Hunter
+Description=WebHunter
 Wants=network-online.target
 After=network.target network-online.target
 
 [Service]
 Type=notify
-WorkingDirectory=/usr/share/huizenjacht
+WorkingDirectory=/usr/share/webhunter
 Restart=on-failure
-ExecStart=/usr/bin/python3 /usr/local/bin/huizenjacht.py -c /etc/huizenjacht.yaml
+ExecStart=/usr/bin/python3 /usr/local/bin/webhunter.py -c /etc/webhunter.yaml
 ExecReload=kill -s SIGHUP $MAINPID
 
 [Install]

@@ -101,7 +101,7 @@ CREATE TABLE IF NOT EXISTS "Funda" (
             urls_json = json.loads("".join(soup.find("script", {"type": "application/ld+json"}).contents[0]))
             urls = [item["url"] for item in urls_json["itemListElement"]]
         except AttributeError as exc:
-            self.logger.info(f"Failed to retrieve Funda urls from query with parameters {self._req_url_params}")
+            logger.exception(f"Failed to retrieve Funda urls from webpage, used query with parameters {self._req_url_params}", exc_info=exc)
             urls = None
 
         return urls

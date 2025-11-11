@@ -1,6 +1,8 @@
-# Huizenjacht-specific files
-huizenjacht.yaml
-huizenjacht/huizenjacht.db
+# WebHunter-specific files
+webhunter.yaml
+webhunter/webhunter.db
+
+### AUTO-GENERATED GITIGNORE ###
 
 # Created by https://www.toptal.com/developers/gitignore/api/windows,linux,python,pycharm+iml
 # Edit at https://www.toptal.com/developers/gitignore?templates=windows,linux,python,pycharm+iml

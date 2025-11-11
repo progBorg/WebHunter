@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-# huizenjacht.py
+# webhunter.py
 # author: Tom Veldman
-# (c) 2024
+# (c) 2024 - 2025
 # MIT license
 
 import argparse
@@ -21,9 +21,9 @@ try:  # Will fail if not on Linux
 except ImportError:
     pass  # Fail silently and log later
 
-from huizenjacht.source import Source, Funda
-from huizenjacht.comm import Comm
-from huizenjacht.config import Config, load_config_file
+from webhunter.source import Source, Funda
+from webhunter.comm import Comm
+from webhunter.config import Config, load_config_file
 
 # Some constants
 PROGRAM_VERSION: str = "0.1"
@@ -59,11 +59,11 @@ def main():
     db = sqlite3.connect(conf["server"]["db"])
 
     # Create main house hunting object
-    hj = Huizenjacht(db)
+    wh = WebHunter(db)
 
     # Implement reloading via SIGHUP if supported by system
     try:
-        signal.signal(signal.SIGHUP, hj.reload)
+        signal.signal(signal.SIGHUP, wh.reload)
     except AttributeError:
         logger.info("SIGHUP not supported by system, support for configuration reloading disabled")
 
@@ -71,13 +71,13 @@ def main():
     # Handle seeding of database
     if args.reseed:
         logger.info("Reseeding database")
-        hj.seed()
+        wh.seed()
 
     min_waiting_time = conf["server"].get("poll_time_min", 240)  # seconds
     max_waiting_time = conf["server"].get("poll_time_max", 360)  # seconds
     if min_waiting_time > max_waiting_time:
         max_waiting_time = min_waiting_time + 5
-    logger.info(f"Running Huizenjacht at an interval of {min_waiting_time}s to {max_waiting_time}s")
+    logger.info(f"Running WebHunter at an interval of {min_waiting_time}s to {max_waiting_time}s")
 
     s = sched.scheduler()
 
@@ -88,7 +88,7 @@ def main():
         run_periodic(
             scheduler=s,
             interval=(min_waiting_time, max_waiting_time),
-            action=hj.run,
+            action=wh.run,
         )
     finally:
         systemd_notify('STOPPING=1')
@@ -101,8 +101,8 @@ def main():
 {exc_type.__name__}:
 {traceback.format_exc(limit=3)}"""
             title = conf["server"]["message_strings"]["server_info_msg_title"]
-            for c in hj.comms:
-                hj.send_msg(c, msg=msg, title=title)
+            for c in wh.comms:
+                wh.send_msg(c, msg=msg, title=title)
 
     return 0
 
@@ -128,7 +128,7 @@ def run_periodic(scheduler: sched.scheduler, interval, action, actionargs=(), ac
     action(*actionargs, **actionkwargs)
 
 
-class Huizenjacht:
+class WebHunter:
     # Class constants
     SOURCES_KEY = "sources"
     COMMS_KEY = "comm"
@@ -182,42 +182,42 @@ class Huizenjacht:
 
     def run(self):
         """Go once through all sources and push new houses to all comms"""
-        self.logger.debug("Running Huizenjacht")
+        self.logger.debug("Running WebHunter")
 
         # Get new houses
-        new_houses = {}
+        new_items = {}
         for source in self.sources:
-            for house in source.get():
-                if source.is_new(house):
+            for item in source.get():
+                if source.is_new(item):
                     key = type(source).__name__
-                    if key in new_houses:
-                        new_houses[key].append(house)
+                    if key in new_items:
+                        new_items[key].append(item)
                     else:
-                        new_houses[key] = [house]
+                        new_items[key] = [item]
 
         # Return if no new houses
-        if len(new_houses) == 0:
-            self.logger.debug("No new houses found")
+        if len(new_items) == 0:
+            self.logger.debug("No new items found")
             return
 
         # Parse some information
-        new_houses_count = sum([len(new_houses[h]) for h in new_houses])
-        new_houses_sources = new_houses.keys()
-        new_houses_sources = ', '.join(new_houses_sources)
-        self.logger.info(f"Found {new_houses_count} new houses on {new_houses_sources}")
+        new_items_count = sum([len(new_items[h]) for h in new_items])
+        new_items_sources = new_items.keys()
+        new_items_sources = ', '.join(new_items_sources)
+        self.logger.info(f"Found {new_items_count} new items on {new_items_sources}")
 
         # Create message strings
-        if new_houses_count == 1:  # use singular if only one house available
+        if new_items_count == 1:  # use singular if only one item available
             title = self.DEFAULT_MSG_TITLE
-            msg = f"Er is 1 nieuw huis gevonden op {new_houses_sources}"
+            msg = f"Er is 1 nieuw item gevonden op {new_items_sources}"
         else:  # else use plural
             title = self.DEFAULT_MSG_TITLE_PLURAL
-            msg = f"Er zijn {new_houses_count} nieuwe huizen gevonden op {new_houses_sources}"
+            msg = f"Er zijn {new_items_count} nieuwe items gevonden op {new_items_sources}"
 
         try:  # Funda has high priority
-            url = new_houses['Funda'][0]
-        except KeyError:  # If no funda house, just get the first one available
-            url = next(iter(new_houses.values()))[0]
+            url = new_items['Funda'][0]
+        except KeyError:  # If no funda item, just get the first one available
+            url = next(iter(new_items.values()))[0]
 
         # Send message to all active comms
         for c in self.comms:
@@ -226,12 +226,12 @@ class Huizenjacht:
     """Load all source objects into a list and return that list"""
 
     def load_sources(self, sources: list, db: sqlite3.Connection) -> list[Source]:
-        return self._load_classes_from_module(db, module_list=sources, module_location="huizenjacht.source")
+        return self._load_classes_from_module(db, module_list=sources, module_location="webhunter.source")
 
     """Load all comm objects into a list and return that list"""
 
     def load_comms(self, comms: list) -> list[Comm]:
-        return self._load_classes_from_module(module_list=comms, module_location="huizenjacht.comm")
+        return self._load_classes_from_module(module_list=comms, module_location="webhunter.comm")
 
     def _load_classes_from_module(self, *args, module_list: list, module_location: str):
         # Collect file names and object names of modules
@@ -311,11 +311,11 @@ class Huizenjacht:
 
 def parse_arguments():
     parser = argparse.ArgumentParser(
-        prog="Huizenjacht housing website scraper",
-        description="Scrape housing websites and push new results to the user",
-        epilog="(C) Tom Veldman 2024"
+        prog="WebHunter website scraper",
+        description="Scrape websites for items and push new results to the user",
+        epilog="(C) Tom Veldman 2024 - 2025"
     )
-    parser.add_argument("--configfile", "-c", type=str, default="/etc/huizenjacht.yaml", help='Configuration file')
+    parser.add_argument("--configfile", "-c", type=str, default="/etc/webhunter.yaml", help='Configuration file')
     parser.add_argument("-v", "--verbose", action="store_true", help="Log debug information")
     parser.add_argument("--version", action="version", version=f"%(prog)s v{PROGRAM_VERSION}")
     parser.add_argument("--reseed", action="store_true",
