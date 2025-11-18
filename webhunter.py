@@ -78,18 +78,21 @@ def main():
     if min_waiting_time > max_waiting_time:
         max_waiting_time = min_waiting_time + 5
     logger.info(f"Running WebHunter at an interval of {min_waiting_time}s to {max_waiting_time}s")
+    rerun_interval = random.randint(min_waiting_time, max_waiting_time)
 
-    s = sched.scheduler()
+    webhunter_scheduler = sched.scheduler()
+    webhunter_scheduler.enter(
+        rerun_interval,
+        1,
+        run_periodic,
+        (webhunter_scheduler, rerun_interval, wh.run)
+    )
 
     # Let systemd know we've successfully initialized
     systemd_notify('READY=1')
 
     try:
-        run_periodic(
-            scheduler=s,
-            interval=(min_waiting_time, max_waiting_time),
-            action=wh.run,
-        )
+        webhunter_scheduler.run()
     finally:
         systemd_notify('STOPPING=1')
 
@@ -116,13 +119,8 @@ def systemd_notify(message: str):
 
 
 def run_periodic(scheduler: sched.scheduler, interval, action, actionargs=(), actionkwargs={}):
-    if isinstance(interval, tuple) and len(interval) >= 2:
-        rerun_interval = random.randint(interval[0], interval[1])
-    else:
-        rerun_interval = interval
-
     # Reschedule same event to happen again after rerun_interval time has passed
-    scheduler.enter(rerun_interval, 1, run_periodic, (scheduler, interval, action, actionargs, actionkwargs))
+    scheduler.enter(interval, 1, run_periodic, (scheduler, interval, action, actionargs, actionkwargs))
 
     # Run action
     action(*actionargs, **actionkwargs)
